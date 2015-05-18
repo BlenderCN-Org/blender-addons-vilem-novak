@@ -84,7 +84,9 @@ def UVobs(obs):
 				coord = ob.data.vertices[vert].normal
 				normal = ob.data.vertices[vert].co
 				uv = ob.data.uv_layers.active.data[loop].uv 
+				uv.y+=zoffset#we shift the uv to not collide when packing more objects
 				out_verts.append((uv.x,0,uv.y))
+				
 				oface.append(loop)
 			#print(oface)
 			out_faces.append(oface)
@@ -117,8 +119,8 @@ def UVobs(obs):
 		
 		uvobs.extend(bpy.context.selected_objects)
 		
-		for ob in bpy.context.selected_objects:
-			ob.location.z+=zoffset
+		#for ob in bpy.context.selected_objects:
+			#ob.location.z+=zoffset
 			#print(zoffset)
 		bpy.ops.object.origin_set(type='ORIGIN_CENTER_OF_MASS')
 		zoffset+=1
