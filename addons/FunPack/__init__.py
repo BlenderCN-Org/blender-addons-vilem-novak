@@ -167,6 +167,8 @@ def doGame(context):
 	bpy.context.window.screen.scene = bpy.data.scenes['FunPack']
 	
 	bpy.ops.view3d.viewnumpad(type='CAMERA')
+	bpy.context.space_data.viewport_shade = 'MATERIAL'
+	#bpy.ops.view3d.zoom_camera_1_to_1()
 	#bpy.context.scene.update()
 	
 	#PLAY THE GAME!
