@@ -1,9 +1,9 @@
 bl_info = {
-	"name": "FunPack",
+	"name": "G - Pack",
 	"author": "Velem Novak",
 	"version": (0, 1, 0),
 	"blender": (2, 70, 0),
-	"location": "Object > FunPack",
+	"location": "Object > G-Pack",
 	"description": "UV packing game",
 	"warning": "",
 	"wiki_url": "http://www.blendercam.blogspot.com",
@@ -12,6 +12,8 @@ bl_info = {
 
 import bpy
 import math, random, os
+import mathutils
+from mathutils import *
 def activate(ob):
 	bpy.ops.object.select_all(action='DESELECT')
 	ob.select=True
@@ -144,7 +146,7 @@ def UVobs(obs):
 
 	return uvobs
 
-def doGame(context):
+def doGameUV(context):
 	
 	#getIslands(bpy.context.active_object)
 	obs=bpy.context.selected_objects
@@ -210,6 +212,175 @@ def doGame(context):
 	
 	bpy.context.window.screen.scene = origscene
 	bpy.data.scenes.remove(bpy.data.scenes['FunPack'])
+
+#packing of curves
+								
+def getBoundsWorldspace(ob):
+	#progress('getting bounds of object(s)')
+	
+		
+	maxx=maxy=maxz=-10000000
+	minx=miny=minz=10000000
+	
+	bb=ob.bound_box
+	mw=ob.matrix_world
+	
+	for coord in bb:
+		#this can work badly with some imported curves, don't know why...
+		#worldCoord = mw * Vector((coord[0]/ob.scale.x, coord[1]/ob.scale.y, coord[2]/ob.scale.z))
+		worldCoord = mw * Vector((coord[0], coord[1], coord[2]))
+		minx=min(minx,worldCoord.x)
+		miny=min(miny,worldCoord.y)
+		minz=min(minz,worldCoord.z)
+		maxx=max(maxx,worldCoord.x)
+		maxy=max(maxy,worldCoord.y)
+		maxz=max(maxz,worldCoord.z)
+			
+	#progress(time.time()-t)
+	return minx,miny,minz,maxx,maxy,maxz
+
+def getBoundsSpline(s):
+	#progress('getting bounds of object(s)')
+	
+		
+	maxx=maxy=maxz=-10000000
+	minx=miny=minz=10000000
+	
+	
+	
+	
+	for p in s.points:
+		#this can work badly with some imported curves, don't know why...
+		#worldCoord = mw * Vector((coord[0]/ob.scale.x, coord[1]/ob.scale.y, coord[2]/ob.scale.z))
+		
+		minx=min(minx,p.co.x)
+		miny=min(miny,p.co.y)
+		minz=min(minz,p.co.z)
+		maxx=max(maxx,p.co.x)
+		maxy=max(maxy,p.co.y)
+		maxz=max(maxz,p.co.z)
+	for p in s.bezier_points:	
+		minx=min(minx,p.co.x)
+		miny=min(miny,p.co.y)
+		minz=min(minz,p.co.z)
+		maxx=max(maxx,p.co.x)
+		maxy=max(maxy,p.co.y)
+		maxz=max(maxz,p.co.z)
+	#progress(time.time()-t)
+	return minx,miny,minz,maxx,maxy,maxz
+
+def prepareCurves(obs):
+	packobs=[]
+	zoffset=0
+	for ob in obs:
+		
+		activate(ob)
+		bpy.ops.object.duplicate()
+		packob=bpy.context.active_object
+		#bpy.ops.object.rotation_clear()
+		simplify=True
+		thickness=0.1
+		if simplify:
+			c=packob.data
+			if len(c.splines)>0:
+				maxbounds=-10000
+				maxc=0
+				for i in range(0,len(c.splines)):
+					minx,miny,minz,maxx,maxy,maxz=getBoundsSpline(c.splines[i])
+					if maxx-minx+maxy-miny>maxbounds:
+						maxc=i
+						maxbounds= maxx-minx+maxy-miny
+				for i in range(len(c.splines)-1,-1,-1):
+					if i!=maxc:
+						c.splines.remove(c.splines[i])
+			doconvert=False
+			for s in c.splines:
+				if s.type!='POLY':
+					doconvert=True
+			if doconvert:
+				c.dimensions = '3D'
+				bpy.ops.object.convert(target='MESH')
+				bpy.ops.object.convert(target='CURVE')
+			
+			bpy.ops.curve.simplify(error = 0.001)
+			#delete packob here?
+			packob=bpy.context.active_object
+			activate(packob)
+			for s in packob.data.splines:
+				s.use_cyclic_u=True
+				
+			if min(maxx-minx,maxy-miny)<0.1:
+				thickness=min(maxx-minx,maxy-miny)
+		packob.data.dimensions = '2D'
+		
+		packob.rotation_euler=(math.pi/2,0,0)
+		
+		oldloc=packob.location.copy()
+		#bpy.ops.object.origin_set(type='ORIGIN_CENTER_OF_MASS')
+		newloc=packob.location.copy()
+		print(newloc-oldloc)
+		
+		bpy.ops.object.convert(target='MESH')
+		bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+		
+		bpy.ops.object.modifier_add(type='SOLIDIFY')
+		bpy.context.object.modifiers["Solidify"].thickness = thickness
+		bpy.ops.object.modifier_apply(apply_as='DATA', modifier="Solidify")
+		bpy.ops.object.transform_apply(location=False, rotation=True, scale=True)
+		packob['source']=ob.name
+		packob.location=(0,0,0)
+		bpy.ops.object.location_clear()
+
+		minx,maxx,miny,maxy,minz,maxz=getBoundsWorldspace(packob)
+		packob.location.x=-minx
+		packob.location.z= -miny+zoffset
+		zoffset+= maxy-miny
+		
+		#bpy.ops.object.editmode_toggle()
+		#bpy.ops.mesh.separate(type='LOOSE')
+		#bpy.ops.object.editmode_toggle()
+		packobs.append((packob,ob, newloc-oldloc))
+	return packobs
+
+	
+def doGameObs(context):
+	#getIslands(bpy.context.active_object)
+	obs=bpy.context.selected_objects
+	origscene=bpy.context.scene
+	import_scene('FunPack')
+	
+	
+
+	packobs=prepareCurves(obs)
+	gobs=[]
+	for data in packobs:
+		ob=data[0]
+		GameDropOb(ob)
+	for data in packobs:
+			data[0].select=True
+	bpy.ops.group.create()
+	print('done')
+	
+	bpy.ops.object.make_links_scene(scene='FunPack')
+	bpy.ops.object.delete(use_global=False)
+	bpy.context.window.screen.scene = bpy.data.scenes['FunPack']
+	
+	bpy.ops.view3d.viewnumpad(type='CAMERA')
+	bpy.context.space_data.viewport_shade = 'MATERIAL'
+	
+
+	bpy.ops.view3d.game_start()
+	print('repack')
+	
+	for data in packobs:
+		print(data[0].location,data[1].location)
+		data[1].location.x=data[0].location.x
+		data[1].location.y=data[0].location.z
+		data[1].rotation_euler.z=-data[0].rotation_euler.y
+	
+		#bpy.context.scene.objects.unlink(data[0])
+	bpy.context.window.screen.scene = origscene
+	bpy.data.scenes.remove(bpy.data.scenes['FunPack'])
 	
 #####################################################################
 # Import Functions
@@ -218,7 +389,7 @@ def import_scene(obname):
 	opath = "//data.blend\\Scene\\" + obname
 	s = os.sep
 	for p in bpy.utils.script_paths():
-		fname= p + '%saddons%sFunPack%spack_scene.blend'
+		fname= p + '%saddons%sFunPack%spack_scene.blend' % (s,s,s)
 		dpath = p + \
 			'%saddons%sFunPack%spack_scene.blend\\Scene\\' % (s, s, s)
 		if os.path.isfile(fname):
@@ -242,9 +413,9 @@ def import_scene(obname):
 import bpy
 
 
-class FunPackUVOperator(bpy.types.Operator):
+class GPackUVOperator(bpy.types.Operator):
 	"""Tooltip"""
-	bl_idname = "object.fun_pack_uv"
+	bl_idname = "object.gpack_uv"
 	bl_label = "Fun Pack UV"
 
 	@classmethod
@@ -252,16 +423,70 @@ class FunPackUVOperator(bpy.types.Operator):
 		return context.active_object is not None
 
 	def execute(self, context):
-		doGame(context)
+		doGameUV(context)
 		return {'FINISHED'}
 
+class GPackCurvesOperator(bpy.types.Operator):
+	"""Tooltip"""
+	bl_idname = "object.gpack"
+	bl_label = "Fun Pack Curves"
 
+	@classmethod
+	def poll(cls, context):
+		return context.active_object is not None
+
+	def execute(self, context):
+		doGameObs(context)
+		return {'FINISHED'}
+		
+
+class GPackSettings(bpy.types.PropertyGroup):
+
+	
+	#lpgroup =   bpy.props.StringProperty(name="low poly group", default="")
+	#hpgroup =   bpy.props.StringProperty(name="high poly group", default="")
+	#by_layers =  bpy.props.BoolProperty(name="by layer",description="", default=True)
+	xsize =  bpy.props.FloatProperty(name="X-sheet-size",description="", default=True)
+	ysize =  bpy.props.FloatProperty(name="Y-size",description="", default=True)
+
+class GPackCurvesPanel(bpy.types.Panel):
+	"""Creates a Panel in the Object properties window"""
+	bl_label = "G - Packer"
+	bl_idname = "WORLD_PT_GPACKER"
+	bl_space_type = 'PROPERTIES'
+	bl_region_type = 'WINDOW'
+	bl_context = "object"
+	
+	
+	def draw(self, context):
+		layout = self.layout
+
+		obj = bpy.context.active_object
+		#s=bpy.context.scene
+		s=bpy.context.scene.gpacker_settings
+		row = layout.row()
+		layout.operator("object.gpack")
+		#layout.prop_search(s, "lpgroup", bpy.data, "groups")
+		#layout.prop_search(s, "hpgroup", bpy.data, "groups")
+		
+		layout.prop(s,'xsize')
+		layout.prop(s,'ysize')
+		
+		
+		#layout.prop(s,'pass_combined')		
 def register():
-	bpy.utils.register_class(FunPackUVOperator)
-
+	s = bpy.types.Scene
+	bpy.utils.register_class(GPackUVOperator)
+	bpy.utils.register_class(GPackCurvesOperator)
+	bpy.utils.register_class(GPackSettings)
+	bpy.utils.register_class(GPackCurvesPanel)
+	s.gpacker_settings = bpy.props.PointerProperty(type= GPackSettings)
 
 def unregister():
-	bpy.utils.unregister_class(FunPackUVOperator)
+	bpy.utils.unregister_class(GPackUVOperator)
+	bpy.utils.unregister_class(GPackCurvesOperator)
+	bpy.utils.unregister_class(GPackSettings)
+	bpy.utils.unregister_class(GPackCurvesPanel)
 
 
 if __name__ == "__main__":
